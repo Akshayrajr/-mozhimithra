@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "557307706382",
+    "project_id": "mozhimithra",
+    "storage_bucket": "mozhimithra.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:557307706382:android:dd5b21ba6911a963cc505f",
+        "android_client_info": {
+          "package_name": "com.mozhimithram.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDzSIvkd5Stxs25mnueUlSwTsW382lpJJ8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

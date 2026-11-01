@@ -1,0 +1,86 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function ownsUser(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function validProfile(data) {
+      return data.keys().hasAll([
+          'targetLanguage',
+          'tutorLanguage',
+          'dailyGoalMinutes',
+          'skillLevel',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'targetLanguage',
+          'tutorLanguage',
+          'dailyGoalMinutes',
+          'skillLevel',
+          'profilePhotoPath',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.targetLanguage in [
+          'Arabic', 'Assamese', 'Bengali', 'English', 'French', 'German',
+          'Gujarati', 'Hindi', 'Japanese', 'Kannada', 'Korean', 'Malayalam',
+          'Mandarin Chinese', 'Marathi', 'Odia', 'Punjabi', 'Spanish', 'Tamil',
+          'Telugu', 'Urdu'
+        ]
+        && data.tutorLanguage in ['English', 'Malayalam']
+        && data.dailyGoalMinutes in [10, 15, 20, 30]
+        && data.skillLevel in ['beginner', 'intermediate', 'advanced']
+        && (!data.keys().hasAny(['profilePhotoPath'])
+          || data.profilePhotoPath is string
+          && data.profilePhotoPath.size() <= 200);
+    }
+
+    match /users/{userId} {
+      allow read: if ownsUser(userId);
+      allow create: if ownsUser(userId) && validProfile(request.resource.data);
+      allow update: if ownsUser(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'targetLanguage',
+          'tutorLanguage',
+          'dailyGoalMinutes',
+          'skillLevel',
+          'profilePhotoPath',
+          'updatedAt'
+        ])
+        && validProfile(request.resource.data);
+      allow delete: if false;
+
+      match /learningEvents/{eventId} {
+        allow read: if ownsUser(userId);
+        allow create: if ownsUser(userId)
+          && request.resource.data.keys().hasAll([
+            'targetLanguage',
+            'exerciseType',
+            'correct',
+            'createdAt'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'targetLanguage',
+            'exerciseType',
+            'correct',
+            'createdAt'
+          ])
+          && request.resource.data.targetLanguage in [
+            'Arabic', 'Assamese', 'Bengali', 'English', 'French', 'German',
+            'Gujarati', 'Hindi', 'Japanese', 'Kannada', 'Korean', 'Malayalam',
+            'Mandarin Chinese', 'Marathi', 'Odia', 'Punjabi', 'Spanish', 'Tamil',
+            'Telugu', 'Urdu'
+          ]
+          && request.resource.data.exerciseType in [
+            'writing', 'vocabulary', 'guidedLesson'
+          ]
+          && request.resource.data.correct is bool
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+    }
+  }
+}
