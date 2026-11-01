@@ -1,10 +1,15 @@
 import { createHash } from "node:crypto";
-import { TextToSpeechClient } from "@google-cloud/text-to-speech";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { defineSecret } from "firebase-functions/params";
 import { HttpsError, onCall } from "firebase-functions/v2/https";
 import { recommendationPrompt, tutorSystemPrompt, type LearnerProfile } from "./tutor_prompts";
+import {
+  providerEndpoint,
+  providerFailureCode,
+  providerReply,
+} from "./provider_configuration";
+import { PiperTtsError, synthesizeWithPiper } from "./piper_tts";
 import { ttsLocaleForLanguage, ttsLocales } from "./voice_languages";
 
 initializeApp();
@@ -13,7 +18,8 @@ const region = "asia-south1";
 const providerUrl = defineSecret("TUTOR_PROVIDER_URL");
 const providerApiKey = defineSecret("TUTOR_API_KEY");
 const providerModel = defineSecret("TUTOR_MODEL");
-const speechClient = new TextToSpeechClient();
+const piperTtsUrl = defineSecret("PIPER_TTS_URL");
+const piperTtsToken = defineSecret("PIPER_TTS_TOKEN");
 const firestore = getFirestore();
 
 const allowedModes = new Set([
@@ -164,6 +170,12 @@ export const tutorReply = onCall(
               : "Practice a greeting: say hello, then ask how the other person is doing.",
         };
       }
+      if (input.mode === "translationPractice") {
+        throw new HttpsError(
+          "failed-precondition",
+          "Malayalam translation practice requires a configured AI tutor. The emulator is running in demo mode.",
+        );
+      }
       return {
         reply:
           input.profile.tutorLanguage === "Malayalam"
@@ -173,15 +185,14 @@ export const tutorReply = onCall(
     }
     await consumeRateLimit(request.auth.uid, "tutor");
 
-    const url = providerUrl.value();
     let endpoint: URL;
     try {
-      endpoint = new URL(url);
-    } catch {
-      throw new HttpsError("failed-precondition", "Tutor provider URL is invalid.");
-    }
-    if (endpoint.protocol !== "https:") {
-      throw new HttpsError("failed-precondition", "Tutor provider must use HTTPS.");
+      endpoint = providerEndpoint(providerUrl.value());
+    } catch (error) {
+      throw new HttpsError(
+        "failed-precondition",
+        error instanceof Error ? error.message : "Tutor provider URL is invalid.",
+      );
     }
 
     const systemPrompt =
@@ -218,8 +229,18 @@ export const tutorReply = onCall(
     }
     if (!response.ok) {
       console.error("Tutor provider returned status", response.status);
-      if (response.status === 429) {
-        throw new HttpsError("resource-exhausted", "Tutor is busy. Try again shortly.");
+      const failureCode = providerFailureCode(response.status);
+      if (failureCode === "resource-exhausted") {
+        throw new HttpsError(
+          failureCode,
+          "The AI provider is rate-limited. Try again shortly.",
+        );
+      }
+      if (failureCode === "failed-precondition") {
+        throw new HttpsError(
+          failureCode,
+          "The AI provider rejected its configured endpoint, credentials, or model. Check TUTOR_PROVIDER_URL, TUTOR_API_KEY, and TUTOR_MODEL.",
+        );
       }
       throw new HttpsError("unavailable", "Tutor is temporarily unavailable.");
     }
@@ -229,23 +250,19 @@ export const tutorReply = onCall(
     } catch {
       throw new HttpsError("internal", "Tutor returned an unreadable response.");
     }
-    const reply =
-      typeof body === "object" && body !== null
-        ? ((body as { choices?: { message?: { content?: unknown } }[]; reply?: unknown })
-            .choices?.[0]?.message?.content ??
-          (body as { reply?: unknown }).reply)
-        : null;
-    if (typeof reply !== "string" || !reply.trim()) {
+    const reply = providerReply(body);
+    if (!reply) {
       throw new HttpsError("internal", "Tutor returned an empty response.");
     }
-    return { reply: reply.trim().slice(0, 5_000) };
+    return { reply };
   },
 );
 
 export const synthesizeSpeech = onCall(
   {
     region,
-    timeoutSeconds: 30,
+    secrets: [piperTtsUrl, piperTtsToken],
+    timeoutSeconds: 60,
     maxInstances: 10,
   },
   async (request) => {
@@ -255,7 +272,7 @@ export const synthesizeSpeech = onCall(
     if (process.env.FUNCTIONS_EMULATOR === "true") {
       throw new HttpsError(
         "unavailable",
-        "Cloud speech is disabled in local emulators; the app can use device speech instead.",
+        "Piper cloud speech is disabled in local emulators; the app can use device speech instead.",
       );
     }
     const text = requireString(
@@ -278,41 +295,26 @@ export const synthesizeSpeech = onCall(
     }
     await consumeRateLimit(request.auth.uid, "speech");
 
-    const [voiceResponse] = await speechClient.listVoices({ languageCode });
-    const voices = (voiceResponse.voices ?? []).filter((voice) =>
-      voice.languageCodes?.some(
-        (code) => code.toLowerCase() === languageCode.toLowerCase(),
-      ),
-    );
-    const voice = voices[0];
-    if (!voice?.name || !voice.languageCodes?.[0]) {
+    try {
+      return await synthesizeWithPiper({
+        baseUrl: piperTtsUrl.value(),
+        token: piperTtsToken.value(),
+        text,
+        language,
+        languageCode,
+      });
+    } catch (error) {
+      if (error instanceof PiperTtsError) {
+        if (error.code === "unavailable") {
+          console.error("Piper TTS request failed.", error.message);
+        }
+        throw new HttpsError(error.code, error.message);
+      }
+      console.error("Piper TTS request failed.", error);
       throw new HttpsError(
-        "failed-precondition",
-        `Cloud Text-to-Speech has no voice for ${language}.`,
+        "unavailable",
+        "Piper speech is temporarily unavailable. The app can try device speech instead.",
       );
     }
-
-    const [audio] = await speechClient.synthesizeSpeech({
-      input: { text },
-      voice: {
-        languageCode,
-        name: voice.name,
-        ssmlGender: voice.ssmlGender,
-      },
-      audioConfig: {
-        audioEncoding: "MP3",
-        speakingRate: 0.9,
-      },
-    });
-    const content = audio.audioContent;
-    if (!content || (typeof content === "string" && content.length === 0)) {
-      throw new HttpsError("internal", "Speech service returned no audio.");
-    }
-    return {
-      audioContent:
-        typeof content === "string" ? content : Buffer.from(content).toString("base64"),
-      languageCode,
-      voiceName: voice.name,
-    };
   },
 );

@@ -1,0 +1,57 @@
+services:
+  piper:
+    build:
+      context: .
+    entrypoint: ["/app/start-piper.sh"]
+    environment:
+      PIPER_VOICES: ${PIPER_VOICES:-ar_JO-kareem-medium,de_DE-thorsten-medium,en_US-lessac-medium,es_ES-sharvard-medium,fr_FR-siwis-medium,hi_IN-rohan-medium,ml_IN-meera-medium,te_IN-maya-medium,zh_CN-huayan-medium}
+      PIPER_DEFAULT_VOICE: ${PIPER_DEFAULT_VOICE:-en_US-lessac-medium}
+      PIPER_DATA_DIR: /voices
+    volumes:
+      - piper-voices:/voices
+    expose:
+      - "5000"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/info', timeout=3)"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 15m
+
+  piper-gateway:
+    build:
+      context: .
+    environment:
+      PIPER_API_TOKEN: ${PIPER_API_TOKEN:?Set a unique PIPER_API_TOKEN in .env}
+    expose:
+      - "8080"
+    depends_on:
+      piper:
+        condition: service_healthy
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    environment:
+      PIPER_TTS_DOMAIN: ${PIPER_TTS_DOMAIN:?Set PIPER_TTS_DOMAIN to a DNS name pointing to this server}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - piper-gateway
+    restart: unless-stopped
+
+volumes:
+  piper-voices:
+  caddy-data:
+  caddy-config:

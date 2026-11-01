@@ -1,0 +1,4 @@
+{$PIPER_TTS_DOMAIN} {
+  encode zstd gzip
+  reverse_proxy piper-gateway:8080
+}

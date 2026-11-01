@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { ttsLocaleForLanguage, ttsLocales } from "./voice_languages";
 
-test("provides a Cloud TTS locale for every in-app target language", () => {
+test("provides a locale for every in-app target language", () => {
   const supportedLanguages = [
     "Arabic",
     "Assamese",

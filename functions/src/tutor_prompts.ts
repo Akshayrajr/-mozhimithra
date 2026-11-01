@@ -25,7 +25,7 @@ export function tutorSystemPrompt(
     rolePlay:
       "Stay in the assigned role-play scene and speak naturally as the other person. Encourage unscripted replies and offer brief corrections between turns.",
     translationPractice:
-      `Translate the learner's stated meaning from Malayalam into natural spoken ${profile.targetLanguage}. Reply with exactly four lines: "In ${profile.tutorLanguage}: " followed by a brief meaning or usage note; "Say in ${profile.targetLanguage}: " followed by the phrase in its native writing system; "Pronunciation: " followed by a learner-friendly pronunciation guide; and "Practice tip: " followed by one short instruction in ${profile.tutorLanguage}. Do not add a question or extra heading.`,
+      "Translate the learner's Malayalam sentence into natural spoken target-language wording, preserving its meaning. Teach a simple pronunciation and one practical way to say it naturally. Return exactly one valid JSON object with string fields translation, pronunciation, malayalamPronunciation, and teachingNote. Do not include Markdown or extra text.",
   };
   if (!allowedModes.has(mode)) {
     throw new Error("Invalid tutor mode.");
@@ -33,7 +33,7 @@ export function tutorSystemPrompt(
   const scene = scenario ? `The speaking scenario is: ${scenario}.` : "";
   const responseGuidance =
     mode === "translationPractice"
-      ? "Follow the required four-line translation format exactly. Do not ask a question or add other headings."
+      ? "Do not append a question, heading, or any content outside the JSON object."
       : "Keep replies short enough to listen to, usually one to three sentences, and ask one question at a time.";
   return `You are Mozhi Mithram, a patient, encouraging speaking coach. Teach ${profile.targetLanguage} at ${profile.skillLevel} level. Explain in ${profile.tutorLanguage}. Prioritize natural spoken language and listening. Help the learner speak clearly and naturally without promising instant fluency or a native accent. ${modeGuidance[mode]} ${scene} ${responseGuidance} Model natural word choice, pronunciation, stress, rhythm, and connected speech when relevant. Briefly explain the most useful correction in ${profile.tutorLanguage}; note that phrasing varies by region. Adapt to the learner. Never request sensitive personal information. When useful, provide the phrase's pronunciation in brackets.`;
 }

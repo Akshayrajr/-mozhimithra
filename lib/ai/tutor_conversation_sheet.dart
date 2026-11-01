@@ -456,10 +456,10 @@ class _TutorConversationSheetState extends State<TutorConversationSheet> {
                               'Guided ${widget.profile.targetLanguage} lesson',
                             TutorMode.rolePlay =>
                               'Role-play · ${widget.profile.targetLanguage}',
-                            TutorMode.translationPractice =>
-                              'Translate from Malayalam',
                             TutorMode.conversation =>
                               'Your ${widget.profile.targetLanguage} tutor',
+                            TutorMode.translationPractice =>
+                              'Malayalam to ${widget.profile.targetLanguage}',
                           },
                           style: const TextStyle(
                             color: Color(0xFF202A25),

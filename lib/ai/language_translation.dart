@@ -18,7 +18,8 @@ Pronunciation: a simple learner-friendly pronunciation guide, with syllables
 separated by dots when helpful.
 Practice tip: one short instruction in $explanationLanguage.
 Do not add another heading or put the translated phrase on a second line.
-'''.trim();
+'''
+      .trim();
 }
 
 String? translatedPhraseFromTutorResponse(

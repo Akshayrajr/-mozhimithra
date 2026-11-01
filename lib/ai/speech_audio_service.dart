@@ -44,7 +44,7 @@ class FirebaseSpeechAudioService implements SpeechAudioService {
     final completion = _player.onPlayerComplete.first.timeout(
       const Duration(seconds: 90),
     );
-    await _player.play(BytesSource(audioBytes));
+    await _player.play(BytesSource(audioBytes, mimeType: 'audio/wav'));
     await completion;
   }
 

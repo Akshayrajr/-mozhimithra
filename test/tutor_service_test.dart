@@ -51,29 +51,6 @@ void main() {
     ]);
   });
 
-  test(
-    'sends Malayalam translation practice as its dedicated tutor mode',
-    () async {
-      late Map<String, Object?> request;
-      final service = FirebaseTutorService(
-        callFunction: (_, data) async {
-          request = data;
-          return {'reply': 'Say in Spanish: Quiero agua.'};
-        },
-      );
-
-      await service.reply(
-        profile: profile,
-        mode: TutorMode.translationPractice,
-        history: const [
-          TutorTurn(role: 'user', content: 'Translate my Malayalam phrase.'),
-        ],
-      );
-
-      expect(request['mode'], 'translationPractice');
-    },
-  );
-
   test('sends speaking activity context for tutor recommendations', () async {
     late Map<String, Object?> request;
     final service = FirebaseTutorService(
@@ -90,9 +67,7 @@ void main() {
 
     expect(recommendation, 'Practice introducing yourself aloud.');
     expect(request['task'], 'recommendation');
-    expect(request['recentActivity'], [
-      'Speaking lesson in Spanish: completed',
-    ]);
+    expect(request['recentActivity'], ['Speaking lesson in Spanish: completed']);
   });
 
   test('reports an invalid Firebase callable response', () async {

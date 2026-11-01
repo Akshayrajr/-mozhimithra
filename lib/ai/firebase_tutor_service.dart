@@ -87,11 +87,10 @@ class FirebaseTutorService implements TutorService {
   }
 
   static String _messageForCode(String code) => switch (code) {
-    'unauthenticated' =>
-      'Sign in again to continue using your tutor.',
+    'unauthenticated' => 'Sign in again to continue using your tutor.',
     'resource-exhausted' => 'The tutor is busy. Wait a minute and try again.',
     'failed-precondition' =>
-      'The tutor backend is not configured for this service yet.',
+      'The tutor backend setup is missing or invalid. Check its provider key, endpoint, model, and deployment settings.',
     'invalid-argument' => 'The tutor request was invalid. Please retry.',
     'unavailable' => 'Tutor is temporarily unavailable. Try again shortly.',
     _ => 'Could not reach the Firebase tutor. Please try again.',

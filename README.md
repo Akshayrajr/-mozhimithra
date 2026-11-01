@@ -6,26 +6,80 @@ A speaking-focused language-learning app built with Flutter and Firebase.
 
 The app calls authenticated Firebase callable functions in `asia-south1`. The
 Functions backend in `functions/` proxies tutor requests to an
-OpenAI-compatible provider and calls Google Cloud Text-to-Speech (Cloud TTS)
-for spoken replies. Provider URL, API key, and model are Firebase Functions
-secrets; they are never shipped in the app.
+OpenAI-compatible provider and proxies spoken replies to a self-hosted Piper
+TTS service. Provider URL, API key, model, and Piper service credentials are
+Firebase Functions secrets; they are never shipped in the app.
 
-1. Enable the **Cloud Functions** and **Cloud Text-to-Speech** APIs for the
-   Firebase project and ensure billing is enabled. The Functions runtime service
-   account needs permission to call Cloud TTS.
-2. From the project root, configure the provider values without putting them in
-   source files:
+### Host Piper
+
+The included [Piper API stack](./tts/piper-api/) uses the open-source
+[OHF-Voice/piper1-gpl](https://github.com/OHF-Voice/piper1-gpl) engine, a
+token-protected gateway, and Caddy for HTTPS. Host it on a Docker machine with a
+public DNS name pointing to that machine and inbound ports 80 and 443 open.
+First startup downloads the configured voice models (several hundred MB); allow
+time and disk space for that download.
+
+1. Copy `tts/piper-api/.env.example` to `.env` in that directory. Set
+   `PIPER_TTS_DOMAIN` to the public DNS name and replace
+   `PIPER_API_TOKEN` with a unique, URL-safe random secret of at least 32
+   characters. For example, generate a secret in PowerShell:
+
+   ```powershell
+   $bytes = New-Object byte[] 32
+   [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+   [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
+   ```
+
+   Keep `.env` private and out of version control. The gateway is the only
+   public synthesis endpoint; do not publish or expose Piper's port 5000.
+2. From `tts/piper-api/`, start the stack:
+
+   ```powershell
+   docker compose up --build -d
+   ```
+
+   Caddy obtains and renews a TLS certificate automatically. Check
+   `https://your-domain/healthz`; it should return `{"status":"ok"}`. Configure
+   `PIPER_VOICES` in `.env` to select the models you have reviewed and are
+   authorized to use. The voice list includes Arabic, German, English, French,
+   Hindi, Malayalam, Mandarin Chinese, Spanish, and Telugu. **The voice models
+   have separate licenses from the Piper engine.** Review each selected model's
+   `MODEL_CARD` and original dataset license for your intended commercial use
+   before enabling it. Some model cards specify a license, while others refer
+   to an external dataset or state that the license is unknown. The app falls
+   back to a matching device voice when Piper has no configured model for a
+   selected language; it never substitutes a different language.
+
+### Configure Firebase
+
+Enable the **Cloud Functions** API and ensure the Firebase project is on a plan
+that supports deployed Functions. Do not put credentials in the app or source
+repository. From the project root, configure secrets using the Firebase CLI:
 
    ```powershell
    firebase use mozhimithra
+   firebase functions:secrets:set PIPER_TTS_URL
+   firebase functions:secrets:set PIPER_TTS_TOKEN
    firebase functions:secrets:set TUTOR_PROVIDER_URL
    firebase functions:secrets:set TUTOR_API_KEY
    firebase functions:secrets:set TUTOR_MODEL
    ```
 
-   Use the provider's HTTPS chat-completions endpoint, API key, and model when
-   prompted. Do not paste secrets into chat or commit them.
-3. Deploy the Firebase Functions:
+   Set `PIPER_TTS_URL` to the Piper HTTPS base URL (for example,
+   `https://tts.example.com`, without `/synthesize`) and `PIPER_TTS_TOKEN` to
+   the same secret used for `PIPER_API_TOKEN` on the host. The Firebase CLI
+   prompts for the values. Never paste secrets into chat or commit them.
+
+   One supported option is the
+   [Gemini OpenAI-compatible API](https://ai.google.dev/gemini-api/docs/openai):
+
+   - `TUTOR_PROVIDER_URL`: `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`
+   - `TUTOR_API_KEY`: your own Gemini API key, created in [Google AI Studio](https://aistudio.google.com/apikey)
+   - `TUTOR_MODEL`: a currently available Gemini model compatible with the endpoint (the official example currently uses `gemini-3.8-flash`)
+
+   Other HTTPS providers with an OpenAI-compatible chat-completions API can
+   use the same backend. Deploy only after the Piper host is reachable and the
+   secret values are set:
 
    ```powershell
    firebase deploy --only functions
@@ -36,15 +90,16 @@ Functions reject unauthenticated callers and enforce per-user request limits.
 Tutor requests include the selected languages, skill level, teaching mode, and
 recent conversation turns. No `--dart-define` or separate tutor URL is needed.
 
-Cloud TTS selects an available voice from Google's live voice catalog for each
-target language. If a cloud voice is unavailable or the function cannot be
-reached, the app falls back to the device's installed TTS voice. Some languages
-or regional voices may not be available in either engine on every device. The
-client does not silently substitute a different language.
+Piper audio is returned as WAV through the authenticated Firebase callable.
+If the service is unreachable, the selected language has no configured Piper
+voice, or a device is offline, the app attempts a matching installed device
+voice. Some regional voices may not be available in either engine on every
+device. The client does not silently substitute a different language.
 
-Cloud TTS usage incurs charges under the Firebase project's linked Google Cloud
-billing account. Functions limit each signed-in user to 12 tutor requests and
-30 speech synthesis requests per minute.
+The host's compute, storage, and network usage may incur charges with its
+provider. Firebase Functions usage may also incur charges under the Firebase
+project's billing plan. Functions limit each signed-in user to 12 tutor
+requests and 30 speech synthesis requests per minute.
 
 ## Profile and Photos
 
@@ -72,15 +127,11 @@ The tutor reads its opening prompt, listens for the learner's response, sends
 recognized speech to the Firebase tutor function, then speaks its reply and
 listens for the next turn. **Role-play** offers everyday conversation practice;
 **Speak & repeat** models target-language phrases and lets the learner practice
-aloud. **Say it in Malayalam** lets learners speak a phrase in Malayalam and
-receive a natural target-language translation, a meaning note, pronunciation
-guidance, and a short practice tip. The translated phrase can be played with
-the target-language speech voice. This feature requires a live tutor backend
-that supports the translation-practice response format.
+aloud.
 
 Voice input requires microphone and speech-recognition permissions. Android
 and iOS permission declarations are included in the platform projects.
-Speech recognition remains device-provided; cloud TTS provides tutor replies
+Speech recognition remains device-provided; Piper TTS provides tutor replies
 and pronunciation examples.
 
 The Voice Trainer's percentage is a match between the intended phrase and the
@@ -94,10 +145,22 @@ or changing the Firebase plan. Install the Firebase CLI and Java 21. In
 PowerShell, start the emulators from the project root:
 
 ```powershell
+if (-not (Test-Path .\functions\.secret.local)) {
+  @'
+TUTOR_PROVIDER_URL=https://example.invalid/v1/chat/completions
+TUTOR_API_KEY=emulator-only
+TUTOR_MODEL=demo
+PIPER_TTS_URL=https://tts.example.invalid
+PIPER_TTS_TOKEN=emulator-only
+'@ | Set-Content -Encoding Ascii .\functions\.secret.local
+}
 $env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
 $env:Path = "$env:JAVA_HOME\bin;$env:Path"
 firebase emulators:start --project mozhimithra --only auth,firestore,functions,storage
 ```
+
+The ignored `functions/.secret.local` values above are placeholders for the
+demo emulator only; they do not enable AI or affect production secrets.
 
 In another terminal, launch the app with emulator connections explicitly
 enabled:
@@ -118,12 +181,11 @@ development-machine address with
 through the local firewall.
 
 The local Functions emulator returns clearly identified demo tutor replies
-instead of calling an AI provider. Cloud Text-to-Speech is disabled locally;
-the app falls back to an installed device voice. This setup tests Firebase
+instead of calling an AI provider. Piper cloud speech is disabled locally; the
+app falls back to an installed device voice. This setup tests Firebase
 Auth, profile persistence, and callable-function wiring without cloud
 deployment, provider credentials, or Firebase billing. It does not test live
-AI or cloud speech; Malayalam translation practice is not available from the
-demo tutor. Do not pass the emulator flag in production builds.
+AI or cloud speech. Do not pass the emulator flag in production builds.
 
 Speech recognition and device TTS availability varies by device, operating
 system, installed language packs, and network access. The app asks the device
