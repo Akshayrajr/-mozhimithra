@@ -16,7 +16,12 @@ const providerModel = defineSecret("TUTOR_MODEL");
 const speechClient = new TextToSpeechClient();
 const firestore = getFirestore();
 
-const allowedModes = new Set(["conversation", "guidedLesson", "rolePlay"]);
+const allowedModes = new Set([
+  "conversation",
+  "guidedLesson",
+  "rolePlay",
+  "translationPractice",
+]);
 const allowedLevels = new Set(["beginner", "intermediate", "advanced"]);
 
 interface ChatTurn {
@@ -150,6 +155,22 @@ export const tutorReply = onCall(
       throw new HttpsError("unauthenticated", "Sign in to use the tutor.");
     }
     const input = tutorRequestData(request.data);
+    if (process.env.FUNCTIONS_EMULATOR === "true") {
+      if (input.task === "recommendation") {
+        return {
+          reply:
+            input.profile.tutorLanguage === "Malayalam"
+              ? "അഭിവാദ്യങ്ങൾ പരിശീലിക്കൂ: നമസ്കാരം പറഞ്ഞ്, എങ്ങനെയുണ്ട് എന്ന് ചോദിക്കൂ."
+              : "Practice a greeting: say hello, then ask how the other person is doing.",
+        };
+      }
+      return {
+        reply:
+          input.profile.tutorLanguage === "Malayalam"
+            ? `നന്നായി. ${input.profile.targetLanguage}യിൽ പരിശീലനം തുടരാം. നിങ്ങളെക്കുറിച്ച് ഒരു ചെറിയ വാക്യം കൂടി പറയൂ.`
+            : `Nice work. Let’s keep practicing ${input.profile.targetLanguage}. Say one more short sentence about yourself.`,
+      };
+    }
     await consumeRateLimit(request.auth.uid, "tutor");
 
     const url = providerUrl.value();
@@ -230,6 +251,12 @@ export const synthesizeSpeech = onCall(
   async (request) => {
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "Sign in to use spoken replies.");
+    }
+    if (process.env.FUNCTIONS_EMULATOR === "true") {
+      throw new HttpsError(
+        "unavailable",
+        "Cloud speech is disabled in local emulators; the app can use device speech instead.",
+      );
     }
     const text = requireString(
       typeof request.data === "object" && request.data !== null

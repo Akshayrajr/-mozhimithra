@@ -67,6 +67,7 @@ app.*.map.json
 .env
 .env.*
 !.env.example
+**/.secret.local
 **/service-account*.json
 **/serviceAccount*.json
 /functions/node_modules/

@@ -7,7 +7,7 @@ class TutorTurn {
   final String content;
 }
 
-enum TutorMode { conversation, guidedLesson, rolePlay }
+enum TutorMode { conversation, guidedLesson, rolePlay, translationPractice }
 
 abstract interface class TutorService {
   bool get isConfigured;

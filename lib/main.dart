@@ -12,10 +12,14 @@ import 'auth/profile_page.dart';
 import 'data/learning_profile.dart';
 import 'data/vocabulary.dart';
 import 'firebase_options.dart';
+import 'firebase_emulators.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  if (useFirebaseEmulators) {
+    await configureFirebaseEmulators();
+  }
   runApp(const MozhiMithraApp());
 }
 

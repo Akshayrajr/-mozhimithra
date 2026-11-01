@@ -20,6 +20,15 @@ test("guided tutor prompt coaches spoken natural language", () => {
   assert.match(prompt, /not proof of mastery/);
 });
 
+test("translation practice prompt teaches a Malayalam speaker a target phrase", () => {
+  const prompt = tutorSystemPrompt(profile, "translationPractice");
+
+  assert.match(prompt, /Translate the learner's stated meaning from Malayalam/);
+  assert.match(prompt, /Say in Spanish:/);
+  assert.match(prompt, /Pronunciation:/);
+  assert.match(prompt, /Practice tip:/);
+});
+
 test("recommendation prompt uses speaking progress, not writing", () => {
   const prompt = recommendationPrompt(profile, ["Completed a spoken greeting"]);
 

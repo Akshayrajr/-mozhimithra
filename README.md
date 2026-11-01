@@ -72,7 +72,11 @@ The tutor reads its opening prompt, listens for the learner's response, sends
 recognized speech to the Firebase tutor function, then speaks its reply and
 listens for the next turn. **Role-play** offers everyday conversation practice;
 **Speak & repeat** models target-language phrases and lets the learner practice
-aloud.
+aloud. **Say it in Malayalam** lets learners speak a phrase in Malayalam and
+receive a natural target-language translation, a meaning note, pronunciation
+guidance, and a short practice tip. The translated phrase can be played with
+the target-language speech voice. This feature requires a live tutor backend
+that supports the translation-practice response format.
 
 Voice input requires microphone and speech-recognition permissions. Android
 and iOS permission declarations are included in the platform projects.
@@ -82,6 +86,44 @@ and pronunciation examples.
 The Voice Trainer's percentage is a match between the intended phrase and the
 speech-recognition transcript. It is not an acoustic pronunciation or accent
 score.
+
+## Local Firebase emulators (no billing-plan change)
+
+Run Auth, Firestore, Storage, and callable Functions locally without deploying
+or changing the Firebase plan. Install the Firebase CLI and Java 21. In
+PowerShell, start the emulators from the project root:
+
+```powershell
+$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"
+$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+firebase emulators:start --project mozhimithra --only auth,firestore,functions,storage
+```
+
+In another terminal, launch the app with emulator connections explicitly
+enabled:
+
+```powershell
+flutter run -d chrome --dart-define=USE_FIREBASE_EMULATORS=true
+```
+
+Use the email-and-password sign-up flow to create a disposable emulator
+account. Emulator accounts and data are local and do not change production
+Firebase Auth, Firestore, or Storage. The emulator UI is available at
+`http://localhost:4000`. Android emulators connect through `10.0.2.2`; Chrome uses `localhost`.
+Windows desktop is intentionally rejected in emulator mode because its Firebase
+Storage plugin cannot connect to the Storage emulator. For a physical device,
+pass a reachable
+development-machine address with
+`--dart-define=FIREBASE_EMULATOR_HOST=192.168.1.10` and allow the emulator ports
+through the local firewall.
+
+The local Functions emulator returns clearly identified demo tutor replies
+instead of calling an AI provider. Cloud Text-to-Speech is disabled locally;
+the app falls back to an installed device voice. This setup tests Firebase
+Auth, profile persistence, and callable-function wiring without cloud
+deployment, provider credentials, or Firebase billing. It does not test live
+AI or cloud speech; Malayalam translation practice is not available from the
+demo tutor. Do not pass the emulator flag in production builds.
 
 Speech recognition and device TTS availability varies by device, operating
 system, installed language packs, and network access. The app asks the device

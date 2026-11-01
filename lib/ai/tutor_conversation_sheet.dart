@@ -349,7 +349,8 @@ class _TutorConversationSheetState extends State<TutorConversationSheet> {
         final result = await _tts.speak(trimmed);
         if ((result == false || result == 0) && mounted) {
           setState(() {
-            _voiceError = 'Neither cloud nor device speech could play the reply.';
+            _voiceError =
+                'Neither cloud nor device speech could play the reply.';
           });
           return;
         }
@@ -455,6 +456,8 @@ class _TutorConversationSheetState extends State<TutorConversationSheet> {
                               'Guided ${widget.profile.targetLanguage} lesson',
                             TutorMode.rolePlay =>
                               'Role-play · ${widget.profile.targetLanguage}',
+                            TutorMode.translationPractice =>
+                              'Translate from Malayalam',
                             TutorMode.conversation =>
                               'Your ${widget.profile.targetLanguage} tutor',
                           },

@@ -9,6 +9,7 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 import '../data/learning_profile.dart';
 import '../data/vocabulary.dart';
+import 'language_translation.dart';
 import 'speech_audio_service.dart';
 import 'tutor_service.dart';
 import 'voice_locale.dart';
@@ -67,6 +68,12 @@ class _VoiceTrainerSheetState extends State<VoiceTrainerSheet>
   String? _voiceError;
   bool _sessionComplete = false;
   bool _showResult = false;
+  bool _translationMode = false;
+  bool _translating = false;
+  int _translationRequestId = 0;
+  String? _translatedFrom;
+  String? _translationResponse;
+  String? _translatedPhrase;
 
   // ── Animations ───────────────────────────────────────────────────────────
   late AnimationController _pulseController;
@@ -162,7 +169,8 @@ class _VoiceTrainerSheetState extends State<VoiceTrainerSheet>
         if ((result == false || result == 0) && mounted) {
           setState(() {
             _speaking = false;
-            _voiceError = 'Neither cloud nor device speech could play the phrase.';
+            _voiceError =
+                'Neither cloud nor device speech could play the phrase.';
           });
         }
       } catch (_) {
@@ -179,7 +187,15 @@ class _VoiceTrainerSheetState extends State<VoiceTrainerSheet>
   // ── STT ────────────────────────────────────────────────────────────────────
 
   Future<void> _startListening() async {
-    if (_listening) return;
+    if (_listening || _translating || _speaking) return;
+    if (_translationMode && widget.profile.targetLanguage == 'Malayalam') {
+      setState(() {
+        _voiceError =
+            'Choose a language other than Malayalam in your Learn settings '
+            'before translating from Malayalam.';
+      });
+      return;
+    }
 
     if (!_speechInitialized) {
       try {
@@ -206,13 +222,20 @@ class _VoiceTrainerSheetState extends State<VoiceTrainerSheet>
       _heardWords = '';
       _showResult = false;
       _aiFeedback = null;
+      if (_translationMode) {
+        _translatedFrom = null;
+        _translationResponse = null;
+        _translatedPhrase = null;
+      }
     });
 
     try {
       await _speech.listen(
         onResult: _handleSpeechResult,
         listenOptions: SpeechListenOptions(
-          localeId: localeCodeForLanguage(widget.profile.targetLanguage),
+          localeId: localeCodeForLanguage(
+            _translationMode ? 'Malayalam' : widget.profile.targetLanguage,
+          ),
           listenFor: const Duration(seconds: 15),
           pauseFor: const Duration(seconds: 3),
           partialResults: true,
@@ -229,8 +252,7 @@ class _VoiceTrainerSheetState extends State<VoiceTrainerSheet>
     if (!mounted) return;
     setState(() => _heardWords = result.recognizedWords);
     if (result.finalResult) {
-      _stopListening();
-      _evaluatePronunciation(result.recognizedWords);
+      _finishListening(result.recognizedWords);
     }
   }
 
@@ -238,9 +260,107 @@ class _VoiceTrainerSheetState extends State<VoiceTrainerSheet>
     if ((status == 'done' || status == 'notListening') &&
         _listening &&
         mounted) {
-      setState(() => _listening = false);
-      if (_heardWords.isNotEmpty) _evaluatePronunciation(_heardWords);
+      _finishListening(_heardWords);
     }
+  }
+
+  Future<void> _finishListening(String words) async {
+    if (!_listening || !mounted) return;
+    setState(() => _listening = false);
+    try {
+      await _speech.stop();
+    } catch (_) {
+      // The recognition service may already have stopped after a final result.
+    }
+    if (!mounted) return;
+
+    if (words.trim().isEmpty) {
+      setState(() => _voiceError = "I didn't catch that. Please try again.");
+    } else if (_translationMode) {
+      await _translateSpokenMalayalam(words);
+    } else {
+      _evaluatePronunciation(words);
+    }
+  }
+
+  Future<void> _translateSpokenMalayalam(String spokenText) async {
+    if (!widget.service.isConfigured) {
+      setState(() {
+        _voiceError =
+            'The language tutor is unavailable. Connect the tutor service '
+            'and try again.';
+      });
+      return;
+    }
+
+    final requestId = ++_translationRequestId;
+    setState(() {
+      _translating = true;
+      _translatedFrom = spokenText;
+      _translationResponse = null;
+      _translatedPhrase = null;
+      _voiceError = null;
+    });
+
+    try {
+      final response = await widget.service.reply(
+        profile: widget.profile,
+        mode: TutorMode.translationPractice,
+        history: [
+          TutorTurn(
+            role: 'user',
+            content: translationPracticePrompt(
+              spokenText: spokenText.trim(),
+              sourceLanguage: 'Malayalam',
+              targetLanguage: widget.profile.targetLanguage,
+              explanationLanguage: widget.profile.tutorLanguage,
+            ),
+          ),
+        ],
+      );
+      if (!mounted || requestId != _translationRequestId) return;
+      final phrase = translatedPhraseFromTutorResponse(
+        response,
+        targetLanguage: widget.profile.targetLanguage,
+      );
+      setState(() {
+        _translationResponse = phrase == null ? null : response;
+        _translatedPhrase = phrase;
+        if (phrase == null) {
+          _voiceError =
+              'The tutor response did not include the translation in the '
+              'expected format. Check that translation practice is supported '
+              'by your tutor backend, then try again.';
+        }
+      });
+    } catch (error) {
+      if (!mounted || requestId != _translationRequestId) return;
+      setState(() {
+        _voiceError = error is TutorServiceException
+            ? error.message
+            : 'Could not translate your phrase. Check your connection and '
+                  'try again.';
+      });
+    } finally {
+      if (mounted && requestId == _translationRequestId) {
+        setState(() => _translating = false);
+      }
+    }
+  }
+
+  void _setTranslationMode(bool enabled) {
+    if (_listening) _stopListening();
+    _translationRequestId++;
+    setState(() {
+      _translationMode = enabled;
+      _heardWords = '';
+      _voiceError = null;
+      _translating = false;
+      _translatedFrom = null;
+      _translationResponse = null;
+      _translatedPhrase = null;
+      _showResult = false;
+    });
   }
 
   void _handleSpeechError(SpeechRecognitionError error) {
@@ -432,14 +552,203 @@ class _VoiceTrainerSheetState extends State<VoiceTrainerSheet>
         child: Column(
           children: [
             _buildHeader(context),
-            if (!_sessionComplete) _buildProgressBar(),
+            _buildModeSelector(),
+            if (!_sessionComplete && !_translationMode) _buildProgressBar(),
             Expanded(
-              child: _sessionComplete
+              child: _translationMode
+                  ? _buildTranslationPractice()
+                  : _sessionComplete
                   ? _buildSessionSummary()
                   : _buildTrainingCard(),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildModeSelector() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          ChoiceChip(
+            avatar: const Icon(Icons.record_voice_over_rounded, size: 18),
+            label: const Text('Speak & repeat'),
+            selected: !_translationMode,
+            onSelected: (selected) {
+              if (selected) _setTranslationMode(false);
+            },
+          ),
+          ChoiceChip(
+            avatar: const Icon(Icons.translate_rounded, size: 18),
+            label: const Text('Say it in Malayalam'),
+            selected: _translationMode,
+            onSelected: (selected) {
+              if (selected) _setTranslationMode(true);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTranslationPractice() {
+    final targetLanguage = widget.profile.targetLanguage;
+    final sameLanguage = targetLanguage == 'Malayalam';
+    return SingleChildScrollView(
+      key: const ValueKey('malayalam-translation-practice'),
+      padding: const EdgeInsets.fromLTRB(22, 18, 22, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Say what you mean in Malayalam',
+            style: const TextStyle(
+              color: Color(0xFF202A25),
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Speak naturally in Malayalam. Your tutor will show you how to '
+            'say it in $targetLanguage, explain the pronunciation, and help '
+            'you practice.',
+            style: const TextStyle(
+              color: Color(0xFF737B75),
+              fontSize: 14,
+              height: 1.5,
+            ),
+          ),
+          const SizedBox(height: 22),
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE8F2E9),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.mic_rounded, color: Color(0xFF23745B)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _translatedFrom ??
+                        'For example: describe something you want to say.',
+                    style: const TextStyle(
+                      color: Color(0xFF202A25),
+                      fontSize: 16,
+                      height: 1.45,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_translating) ...[
+            const SizedBox(height: 24),
+            const Center(
+              child: Column(
+                children: [
+                  CircularProgressIndicator(color: Color(0xFF23745B)),
+                  SizedBox(height: 12),
+                  Text('Preparing your translation and speaking tip…'),
+                ],
+              ),
+            ),
+          ],
+          if (_translationResponse != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: const Color(0xFFDCE7DE)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    _translationResponse!,
+                    style: const TextStyle(
+                      color: Color(0xFF202A25),
+                      fontSize: 16,
+                      height: 1.65,
+                    ),
+                  ),
+                  if (_translatedPhrase != null) ...[
+                    const SizedBox(height: 14),
+                    FilledButton.tonalIcon(
+                      key: const ValueKey('listen-to-translated-phrase'),
+                      onPressed: _speaking
+                          ? null
+                          : () => _speakPhrase(_translatedPhrase!),
+                      icon: Icon(
+                        _speaking
+                            ? Icons.graphic_eq_rounded
+                            : Icons.volume_up_rounded,
+                      ),
+                      label: Text(
+                        'Listen to the $targetLanguage phrase',
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+          if (_voiceError != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 14),
+              child: Text(
+                _voiceError!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Color(0xFFB33B2E)),
+              ),
+            ),
+          const SizedBox(height: 20),
+          if (sameLanguage)
+            const Text(
+              'Choose a language other than Malayalam in your Learn settings '
+              'to practice translations.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Color(0xFF737B75), height: 1.5),
+            )
+          else
+            FilledButton.icon(
+              key: const ValueKey('speak-in-malayalam'),
+              onPressed: _listening
+                  ? _stopListening
+                  : _speaking || _translating
+                  ? null
+                  : _startListening,
+              icon: Icon(
+                _listening ? Icons.stop_circle_rounded : Icons.mic_rounded,
+                size: 23,
+              ),
+              label: Text(
+                _listening ? 'Stop listening' : 'Speak in Malayalam',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: _listening
+                    ? const Color(0xFFB33B2E)
+                    : const Color(0xFF23745B),
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
